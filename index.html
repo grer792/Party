@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Karaoke Party Lights</title>
-  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <script src="https://unpkg.com/mqtt@4.3.7/dist/mqtt.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -175,6 +175,11 @@
       color: var(--muted);
       letter-spacing: 0.08em;
     }
+    #tv-debug {
+      font-size: 0.7rem;
+      color: rgba(100,120,160,0.6);
+      letter-spacing: 0.05em;
+    }
     .dot {
       width: 9px; height: 9px;
       border-radius: 50%;
@@ -301,6 +306,7 @@
       <div class="dot" id="status-dot"></div>
       <span id="status-text">Waiting for phone…</span>
     </div>
+    <div id="tv-debug"></div>
   </div>
 </div>
 
@@ -535,7 +541,14 @@ if (urlRoom) {
   codeInput.value = urlRoom.replace(/\D/g,'').slice(0,4);
 }
 
-const BROKER = 'wss://broker.hivemq.com:8884/mqtt';
+const BROKER = 'wss://broker.emqx.io:8084/mqtt';
+
+function decodeMqtt(payload) {
+  if (typeof payload === 'string') return payload;
+  try { return new TextDecoder('utf-8').decode(payload); } catch(e) {}
+  try { return String.fromCharCode.apply(null, new Uint8Array(payload)); } catch(e) {}
+  return payload.toString();
+}
 
 // ── TV mode ───────────────────────────────────────────────────────────────────
 function startTV() {
@@ -559,33 +572,43 @@ function startTV() {
   const topic = 'karaoke-party/' + code + '/audio';
   let phoneConnected = false;
 
+  const tvDebug = document.getElementById('tv-debug');
+  let msgCount = 0;
+
   const client = mqtt.connect(BROKER, {
     clientId: 'tv-' + code + '-' + Math.random().toString(36).slice(2,7),
     clean: true,
+    reconnectPeriod: 3000,
   });
 
   client.on('connect', () => {
-    client.subscribe(topic);
-    statusText.textContent = 'Waiting for phone…';
+    client.subscribe(topic, (err) => {
+      statusText.textContent = 'Waiting for phone…';
+      tvDebug.textContent = err ? 'Subscribe error' : 'Broker ready · room ' + code;
+    });
   });
 
   client.on('message', (t, payload) => {
     try {
-      const d = JSON.parse(payload.toString());
+      const d = JSON.parse(decodeMqtt(payload));
       smoothVol += ((d.v||0) - smoothVol) * 0.3;
       if (d.b) beatDecay = Math.max(beatDecay, d.b);
       if (d.f) freqBuf = new Uint8Array(d.f);
+      tvDebug.textContent = 'Msgs: ' + (++msgCount);
       if (!phoneConnected) {
         phoneConnected = true;
         statusDot.classList.add('on');
         statusText.textContent = 'Phone connected!';
         setTimeout(() => tvOverlay.classList.add('hidden'), 1200);
       }
-    } catch(e) {}
+    } catch(e) {
+      tvDebug.textContent = 'Parse err: ' + e.message;
+    }
   });
 
-  client.on('error', () => {
+  client.on('error', (e) => {
     statusText.textContent = 'Network error — refresh to retry';
+    tvDebug.textContent = String(e);
   });
 }
 
