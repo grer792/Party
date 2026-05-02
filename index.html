@@ -97,61 +97,71 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      gap: 24px;
-      background: rgba(8,8,24,0.80);
+      gap: 20px;
+      background: rgba(8,8,24,0.82);
       z-index: 5;
       transition: opacity .8s ease;
     }
     #tv-overlay.hidden { opacity: 0; pointer-events: none; }
 
     #room-box {
-      background: rgba(18,12,38,0.92);
+      background: rgba(18,12,38,0.93);
       border: 1px solid rgba(124,106,173,0.35);
       border-radius: 26px;
-      padding: 36px 52px;
+      padding: 32px 44px;
       display: flex;
-      flex-direction: column;
+      flex-direction: row;
       align-items: center;
-      gap: 14px;
+      gap: 40px;
+      max-width: 90vw;
     }
-    #room-box .label {
-      font-size: 0.85rem;
-      letter-spacing: 0.22em;
-      color: var(--muted);
-      text-transform: uppercase;
-    }
-    #room-code {
-      font-size: clamp(4.5rem, 12vw, 8rem);
-      font-weight: 200;
-      letter-spacing: 0.35em;
-      color: #fff;
-      text-shadow: 0 0 50px rgba(200,168,240,0.9);
-      line-height: 1;
-    }
+
+    /* QR side */
     #qr-wrap {
       padding: 10px;
       background: #fff;
       border-radius: 12px;
       line-height: 0;
-      margin-top: 4px;
+      flex-shrink: 0;
+    }
+
+    /* Info side */
+    #room-info {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 10px;
+    }
+    #room-box .label {
+      font-size: 0.8rem;
+      letter-spacing: 0.22em;
+      color: var(--muted);
+      text-transform: uppercase;
+    }
+    #room-code {
+      font-size: clamp(3.5rem, 8vw, 6rem);
+      font-weight: 200;
+      letter-spacing: 0.35em;
+      color: #fff;
+      text-shadow: 0 0 40px rgba(200,168,240,0.9);
+      line-height: 1;
     }
     #room-url {
-      font-size: 0.78rem;
+      font-size: 0.72rem;
       color: var(--muted);
-      letter-spacing: 0.03em;
-      text-align: center;
-      max-width: 340px;
+      letter-spacing: 0.02em;
       word-break: break-all;
+      max-width: 280px;
     }
     #btn-local-mic {
-      margin-top: 6px;
+      margin-top: 4px;
       background: transparent;
       border: 1px solid rgba(124,106,173,0.35);
       border-radius: 50px;
       color: var(--muted);
-      font-size: 0.8rem;
+      font-size: 0.78rem;
       letter-spacing: 0.08em;
-      padding: 8px 22px;
+      padding: 7px 18px;
       cursor: pointer;
       transition: border-color .2s, color .2s;
     }
@@ -279,11 +289,13 @@
 <div id="screen-tv" class="screen">
   <div id="tv-overlay">
     <div id="room-box">
-      <div class="label">Open this site on your phone</div>
-      <div id="room-code">----</div>
       <div id="qr-wrap"><div id="qr-div"></div></div>
-      <div id="room-url"></div>
-      <button id="btn-local-mic">Or use this device's mic</button>
+      <div id="room-info">
+        <div class="label">Scan or open on your phone</div>
+        <div id="room-code">----</div>
+        <div id="room-url"></div>
+        <button id="btn-local-mic">Or use this device's mic</button>
+      </div>
     </div>
     <div id="tv-status">
       <div class="dot" id="status-dot"></div>
@@ -524,25 +536,32 @@ if (urlRoom) {
 }
 
 // ── TV mode ───────────────────────────────────────────────────────────────────
-btnTV.addEventListener('click', () => {
+function startTV() {
   const code = genCode();
   showScreen('tv');
   roomCodeEl.textContent = code;
+  statusDot.classList.remove('on');
+  statusText.textContent = 'Starting…';
+
+  // Clear old QR if retrying
+  qrDiv.innerHTML = '';
 
   const micUrl = location.origin + location.pathname + '?room=' + code;
   roomUrlEl.textContent = micUrl.replace(/^https?:\/\//, '');
 
   try {
     new QRCode(qrDiv, {
-      text: micUrl, width:140, height:140,
+      text: micUrl, width:130, height:130,
       colorDark:'#1a0a3a', colorLight:'#ffffff',
     });
   } catch(e){}
 
-  const peer = new Peer('kparty26-' + code, {
-    debug: 0,
-    config: { iceServers: [{urls:'stun:stun.l.google.com:19302'}] },
-  });
+  const ICE = { iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ]};
+
+  const peer = new Peer('kp26-' + code, { debug:0, config: ICE });
 
   peer.on('open', () => {
     statusText.textContent = 'Waiting for phone…';
@@ -551,11 +570,10 @@ btnTV.addEventListener('click', () => {
   peer.on('connection', (conn) => {
     statusDot.classList.add('on');
     statusText.textContent = 'Phone connected!';
-    setTimeout(() => tvOverlay.classList.add('hidden'), 1400);
+    setTimeout(() => tvOverlay.classList.add('hidden'), 1200);
 
     conn.on('data', (d) => {
       if (!d) return;
-      // Blend incoming volume into smoothVol directly
       smoothVol += ((d.v||0) - smoothVol) * 0.3;
       if (d.b) beatDecay = Math.max(beatDecay, d.b);
       if (d.f) freqBuf = new Uint8Array(d.f);
@@ -569,10 +587,19 @@ btnTV.addEventListener('click', () => {
     });
   });
 
-  peer.on('error', () => {
-    statusText.textContent = 'Connection error — refresh to retry';
+  peer.on('error', (err) => {
+    if (err.type === 'unavailable-id') {
+      // ID taken by a stale session — auto-retry with new code
+      statusText.textContent = 'Retrying…';
+      peer.destroy();
+      setTimeout(startTV, 800);
+    } else {
+      statusText.textContent = 'Network error — refresh to retry';
+    }
   });
-});
+}
+
+btnTV.addEventListener('click', startTV);
 
 // TV local mic fallback
 btnLocalMic.addEventListener('click', async () => {
@@ -619,12 +646,30 @@ btnConnect.addEventListener('click', async () => {
   const micBuf = new Uint8Array(mic.frequencyBinCount);
   src.connect(mic);
 
-  const peer = new Peer({ debug:0 });
+  const peer = new Peer({ debug:0, config: { iceServers: [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ]}});
+
+  function resetPhoneUI(msg) {
+    phoneError.textContent = msg;
+    btnConnect.textContent = 'Connect to TV';
+    btnConnect.disabled = false;
+    codeEntry.style.display = 'flex';
+    micActive.classList.remove('show');
+    peer.destroy();
+  }
 
   peer.on('open', () => {
-    const conn = peer.connect('kparty26-' + code);
+    const conn = peer.connect('kp26-' + code);
+
+    // Timeout if TV never responds
+    const timeout = setTimeout(() => {
+      if (!conn.open) resetPhoneUI('No response from TV. Make sure the TV screen shows the room code and try again.');
+    }, 12000);
 
     conn.on('open', () => {
+      clearTimeout(timeout);
       codeEntry.style.display = 'none';
       micActive.classList.add('show');
 
@@ -643,29 +688,25 @@ btnConnect.addEventListener('click', async () => {
         if (lv>.55) lb = Math.min(lb+lv*.8,1);
         lb *= 0.93;
 
-        // Phone ring visual feedback
         const glow = Math.round(lv*70);
-        volRing.style.boxShadow    = `0 0 ${glow}px rgba(200,168,240,${(lv*.9).toFixed(2)})`;
-        volRing.style.borderColor  = lv > .4 ? 'var(--purple)' : 'var(--purple-dim)';
+        volRing.style.boxShadow   = `0 0 ${glow}px rgba(200,168,240,${(lv*.9).toFixed(2)})`;
+        volRing.style.borderColor = lv > .4 ? 'var(--purple)' : 'var(--purple-dim)';
 
         conn.send({ v:lv, b:lb, f:Array.from(micBuf.slice(0,32)) });
       }, 50);
     });
 
     conn.on('error', () => {
-      phoneError.textContent = 'Could not reach the TV. Check the code and try again.';
-      phoneError.style.display = 'block';
-      btnConnect.textContent = 'Connect to TV';
-      btnConnect.disabled = false;
-      codeEntry.style.display = 'flex';
-      micActive.classList.remove('show');
+      clearTimeout(timeout);
+      resetPhoneUI('Could not reach the TV. Check the code and try again.');
     });
   });
 
-  peer.on('error', () => {
-    phoneError.textContent = 'Connection failed. Make sure the TV page is open.';
-    btnConnect.textContent = 'Connect to TV';
-    btnConnect.disabled = false;
+  peer.on('error', (err) => {
+    const msg = err.type === 'peer-unavailable'
+      ? 'TV not found. Make sure the TV is on the room code screen, then try again.'
+      : 'Connection failed. Check your internet and try again.';
+    resetPhoneUI(msg);
   });
 });
 </script>
