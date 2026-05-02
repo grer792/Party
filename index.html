@@ -1,0 +1,317 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Karaoke Party Lights</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      background: #0a0a1a;
+      overflow: hidden;
+      width: 100vw;
+      height: 100vh;
+      font-family: 'Segoe UI', system-ui, sans-serif;
+    }
+
+    canvas {
+      position: fixed;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    #overlay {
+      position: fixed;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      background: rgba(8, 8, 24, 0.88);
+      z-index: 10;
+      gap: 24px;
+      transition: opacity 0.6s ease;
+    }
+
+    #overlay.hidden {
+      opacity: 0;
+      pointer-events: none;
+    }
+
+    #overlay h1 {
+      font-size: clamp(2rem, 5vw, 3.5rem);
+      font-weight: 300;
+      letter-spacing: 0.15em;
+      color: #c8a8f0;
+      text-transform: uppercase;
+    }
+
+    #overlay p {
+      font-size: clamp(0.95rem, 2vw, 1.15rem);
+      color: #8899bb;
+      letter-spacing: 0.05em;
+    }
+
+    #startBtn {
+      margin-top: 8px;
+      padding: 14px 48px;
+      border: 1.5px solid #7c6aad;
+      border-radius: 50px;
+      background: transparent;
+      color: #c8a8f0;
+      font-size: 1.1rem;
+      letter-spacing: 0.12em;
+      cursor: pointer;
+      transition: background 0.25s, border-color 0.25s, color 0.25s;
+    }
+
+    #startBtn:hover {
+      background: rgba(124, 106, 173, 0.25);
+      border-color: #c8a8f0;
+      color: #fff;
+    }
+
+    #status {
+      position: fixed;
+      bottom: 24px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: rgba(180, 160, 220, 0.45);
+      font-size: 0.82rem;
+      letter-spacing: 0.08em;
+      z-index: 5;
+      pointer-events: none;
+    }
+
+    #volBar {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      width: 0%;
+      height: 3px;
+      background: linear-gradient(90deg, #6a4fc8, #c87aec, #4fb8d4);
+      z-index: 5;
+      transition: width 0.06s ease;
+    }
+  </style>
+</head>
+<body>
+
+<canvas id="canvas"></canvas>
+
+<div id="overlay">
+  <h1>Karaoke Lights</h1>
+  <p>Allow microphone access to sync lights to sound</p>
+  <button id="startBtn">Start the Show</button>
+</div>
+
+<div id="status">listening to room audio…</div>
+<div id="volBar"></div>
+
+<script>
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const overlay = document.getElementById('overlay');
+  const startBtn = document.getElementById('startBtn');
+  const volBar = document.getElementById('volBar');
+
+  let W, H;
+  function resize() {
+    W = canvas.width = window.innerWidth;
+    H = canvas.height = window.innerHeight;
+  }
+  resize();
+  window.addEventListener('resize', resize);
+
+  const PALETTE = [
+    [108,  74, 200],
+    [200,  90, 220],
+    [ 79, 180, 210],
+    [100, 140, 240],
+    [180, 100, 255],
+    [ 60, 200, 200],
+    [130,  80, 230],
+    [220, 110, 180],
+  ];
+
+  const NUM_ORBS = 14;
+  const orbs = [];
+
+  function randBetween(a, b) { return a + Math.random() * (b - a); }
+
+  function makeOrb(i) {
+    const [r, g, b] = PALETTE[i % PALETTE.length];
+    return {
+      x: randBetween(0.1, 0.9) * W,
+      y: randBetween(0.1, 0.9) * H,
+      vx: randBetween(-0.4, 0.4),
+      vy: randBetween(-0.4, 0.4),
+      baseR: randBetween(80, 180),
+      r: 0,
+      phase: randBetween(0, Math.PI * 2),
+      speed: randBetween(0.003, 0.009),
+      pulseAmp: randBetween(0.3, 0.7),
+      color: [r, g, b],
+      alpha: randBetween(0.18, 0.35),
+      beatPulse: 0,
+    };
+  }
+
+  for (let i = 0; i < NUM_ORBS; i++) orbs.push(makeOrb(i));
+
+  const STARS = 120;
+  const stars = Array.from({ length: STARS }, () => ({
+    x: Math.random(),
+    y: Math.random(),
+    size: randBetween(0.5, 1.8),
+    twinkle: randBetween(0, Math.PI * 2),
+    speed: randBetween(0.01, 0.04),
+  }));
+
+  let analyser = null;
+  let dataArray = null;
+  let smoothVolume = 0;
+  let beatDecay = 0;
+
+  function getVolume() {
+    if (!analyser) return 0;
+    analyser.getByteFrequencyData(dataArray);
+    let sum = 0;
+    const len = dataArray.length;
+    for (let i = 0; i < len; i++) {
+      const weight = i < 16 ? 2.5 : i < 48 ? 1.5 : 1.0;
+      sum += dataArray[i] * weight;
+    }
+    const weightedLen = 16 * 2.5 + 32 * 1.5 + (len - 48);
+    return sum / (weightedLen * 255);
+  }
+
+  startBtn.addEventListener('click', async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const source = audioCtx.createMediaStreamSource(stream);
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      analyser.smoothingTimeConstant = 0.78;
+      dataArray = new Uint8Array(analyser.frequencyBinCount);
+      source.connect(analyser);
+      overlay.classList.add('hidden');
+    } catch (e) {
+      const p = overlay.querySelector('p');
+      p.textContent = 'Microphone access denied. Please allow and try again.';
+      p.style.color = '#e08080';
+    }
+  });
+
+  function draw() {
+    requestAnimationFrame(draw);
+
+    const volume = getVolume();
+    smoothVolume += (volume - smoothVolume) * 0.12;
+
+    if (smoothVolume > 0.55) {
+      beatDecay = Math.min(beatDecay + smoothVolume * 0.8, 1.0);
+    }
+    beatDecay *= 0.93;
+    const beatEnergy = beatDecay;
+
+    volBar.style.width = (smoothVolume * 100).toFixed(1) + '%';
+
+    ctx.fillStyle = `rgba(8,8,24,${0.18 + beatEnergy * 0.06})`;
+    ctx.fillRect(0, 0, W, H);
+
+    for (const s of stars) {
+      s.twinkle += s.speed + smoothVolume * 0.04;
+      const a = 0.3 + 0.55 * Math.abs(Math.sin(s.twinkle)) + smoothVolume * 0.3;
+      const sz = s.size + beatEnergy * 1.2;
+      ctx.beginPath();
+      ctx.arc(s.x * W, s.y * H, sz, 0, Math.PI * 2);
+      ctx.fillStyle = `rgba(200,180,255,${a.toFixed(2)})`;
+      ctx.fill();
+    }
+
+    for (const o of orbs) {
+      o.x += o.vx;
+      o.y += o.vy;
+      if (o.x < -200) o.x = W + 200;
+      if (o.x > W + 200) o.x = -200;
+      if (o.y < -200) o.y = H + 200;
+      if (o.y > H + 200) o.y = -200;
+
+      o.phase += o.speed;
+
+      if (beatEnergy > 0.05) o.beatPulse = Math.min(o.beatPulse + beatEnergy * 0.7, 1.2);
+      o.beatPulse *= 0.88;
+
+      const pulse = 1 + o.pulseAmp * Math.sin(o.phase) + smoothVolume * 1.4 + o.beatPulse;
+      o.r = o.baseR * pulse;
+
+      const [r, g, b] = o.color;
+      const alpha = o.alpha + smoothVolume * 0.25 + o.beatPulse * 0.18;
+
+      const grad = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
+      grad.addColorStop(0, `rgba(${r},${g},${b},${Math.min(alpha * 1.6, 0.82).toFixed(2)})`);
+      grad.addColorStop(0.45, `rgba(${r},${g},${b},${(alpha * 0.55).toFixed(2)})`);
+      grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
+
+      ctx.beginPath();
+      ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
+      ctx.fillStyle = grad;
+      ctx.fill();
+    }
+
+    if (analyser) {
+      const bars = 60;
+      const barW = W / bars;
+      const maxH = H * 0.22;
+
+      analyser.getByteFrequencyData(dataArray);
+
+      for (let i = 0; i < bars; i++) {
+        const idx = Math.floor((i / bars) * dataArray.length * 0.6);
+        const val = dataArray[idx] / 255;
+        const bh = val * maxH;
+        const hue = 200 + (i / bars) * 120;
+        const sat = 60 + val * 40;
+        const lit = 50 + val * 25;
+
+        ctx.beginPath();
+        ctx.roundRect(i * barW + 1, H - bh, barW - 2, bh, [4, 4, 0, 0]);
+        ctx.fillStyle = `hsla(${hue},${sat}%,${lit}%,${0.55 + val * 0.35})`;
+        ctx.fill();
+      }
+
+      ctx.save();
+      ctx.scale(1, -1);
+      ctx.translate(0, -H);
+      for (let i = 0; i < bars; i++) {
+        const idx = Math.floor((i / bars) * dataArray.length * 0.6);
+        const val = dataArray[idx] / 255;
+        const bh = val * maxH * 0.5;
+        const hue = 200 + (i / bars) * 120;
+        ctx.beginPath();
+        ctx.roundRect(i * barW + 1, H - bh, barW - 2, bh, [4, 4, 0, 0]);
+        ctx.fillStyle = `hsla(${hue},60%,55%,${0.15 + val * 0.2})`;
+        ctx.fill();
+      }
+      ctx.restore();
+    }
+
+    if (beatEnergy > 0.08) {
+      const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.min(W, H) * 0.65);
+      g.addColorStop(0, `rgba(160,100,255,${(beatEnergy * 0.18).toFixed(2)})`);
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.beginPath();
+      ctx.rect(0, 0, W, H);
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+  }
+
+  draw();
+</script>
+</body>
+</html>
