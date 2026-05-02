@@ -2,17 +2,29 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Karaoke Party Lights</title>
+  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
+    :root {
+      --bg: #0a0a1a;
+      --purple: #c8a8f0;
+      --purple-dim: #7c6aad;
+      --teal: #4fb8d4;
+      --muted: #8899bb;
+      --green: #6af0b8;
+    }
+
     body {
-      background: #0a0a1a;
+      background: var(--bg);
+      color: var(--purple);
+      font-family: 'Segoe UI', system-ui, sans-serif;
       overflow: hidden;
       width: 100vw;
       height: 100vh;
-      font-family: 'Segoe UI', system-ui, sans-serif;
     }
 
     canvas {
@@ -22,78 +34,224 @@
       height: 100%;
     }
 
-    #overlay {
+    .screen {
+      position: fixed;
+      inset: 0;
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 28px;
+      z-index: 10;
+    }
+    .screen.active { display: flex; }
+
+    /* ── Landing ────────────────────────────────── */
+    #screen-landing { background: rgba(8,8,24,0.96); }
+
+    #screen-landing h1 {
+      font-size: clamp(2rem, 5vw, 3.6rem);
+      font-weight: 300;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--purple);
+    }
+    #screen-landing p { color: var(--muted); font-size: 1rem; letter-spacing: 0.05em; }
+
+    .choice-row {
+      display: flex;
+      gap: 20px;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin-top: 8px;
+    }
+
+    .choice-btn {
+      padding: 22px 44px;
+      border: 1.5px solid var(--purple-dim);
+      border-radius: 18px;
+      background: transparent;
+      color: var(--purple);
+      font-size: 1.05rem;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      transition: background .2s, border-color .2s, transform .15s;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+      min-width: 170px;
+    }
+    .choice-btn .icon { font-size: 2.2rem; }
+    .choice-btn:hover {
+      background: rgba(124,106,173,0.2);
+      border-color: var(--purple);
+      transform: translateY(-2px);
+    }
+
+    /* ── TV overlay ─────────────────────────────── */
+    #tv-overlay {
       position: fixed;
       inset: 0;
       display: flex;
       flex-direction: column;
       align-items: center;
       justify-content: center;
-      background: rgba(8, 8, 24, 0.88);
-      z-index: 10;
       gap: 24px;
-      transition: opacity 0.6s ease;
+      background: rgba(8,8,24,0.80);
+      z-index: 5;
+      transition: opacity .8s ease;
     }
+    #tv-overlay.hidden { opacity: 0; pointer-events: none; }
 
-    #overlay.hidden {
-      opacity: 0;
-      pointer-events: none;
+    #room-box {
+      background: rgba(18,12,38,0.92);
+      border: 1px solid rgba(124,106,173,0.35);
+      border-radius: 26px;
+      padding: 36px 52px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 14px;
     }
-
-    #overlay h1 {
-      font-size: clamp(2rem, 5vw, 3.5rem);
-      font-weight: 300;
-      letter-spacing: 0.15em;
-      color: #c8a8f0;
+    #room-box .label {
+      font-size: 0.85rem;
+      letter-spacing: 0.22em;
+      color: var(--muted);
       text-transform: uppercase;
     }
+    #room-code {
+      font-size: clamp(4.5rem, 12vw, 8rem);
+      font-weight: 200;
+      letter-spacing: 0.35em;
+      color: #fff;
+      text-shadow: 0 0 50px rgba(200,168,240,0.9);
+      line-height: 1;
+    }
+    #qr-wrap {
+      padding: 10px;
+      background: #fff;
+      border-radius: 12px;
+      line-height: 0;
+      margin-top: 4px;
+    }
+    #room-url {
+      font-size: 0.78rem;
+      color: var(--muted);
+      letter-spacing: 0.03em;
+      text-align: center;
+      max-width: 340px;
+      word-break: break-all;
+    }
+    #btn-local-mic {
+      margin-top: 6px;
+      background: transparent;
+      border: 1px solid rgba(124,106,173,0.35);
+      border-radius: 50px;
+      color: var(--muted);
+      font-size: 0.8rem;
+      letter-spacing: 0.08em;
+      padding: 8px 22px;
+      cursor: pointer;
+      transition: border-color .2s, color .2s;
+    }
+    #btn-local-mic:hover { border-color: var(--purple); color: var(--purple); }
 
-    #overlay p {
-      font-size: clamp(0.95rem, 2vw, 1.15rem);
-      color: #8899bb;
-      letter-spacing: 0.05em;
+    #tv-status {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.95rem;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+    }
+    .dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      background: var(--purple-dim);
+      animation: blink 1.4s ease-in-out infinite;
+    }
+    .dot.on { background: var(--green); animation: none; }
+    @keyframes blink {
+      0%,100% { opacity:1; transform:scale(1); }
+      50%      { opacity:.3; transform:scale(.65); }
     }
 
-    #startBtn {
-      margin-top: 8px;
+    /* ── Phone screen ───────────────────────────── */
+    #screen-phone { background: rgba(8,8,24,0.97); padding: 32px; }
+    #screen-phone h1 {
+      font-size: 1.8rem; font-weight: 300;
+      letter-spacing: 0.15em; text-transform: uppercase;
+    }
+    #screen-phone p {
+      color: var(--muted); text-align: center;
+      font-size: 0.95rem; line-height: 1.7; max-width: 300px;
+    }
+
+    #code-entry { display: flex; flex-direction: column; align-items: center; gap: 16px; }
+
+    #code-input {
+      background: rgba(255,255,255,0.05);
+      border: 1.5px solid var(--purple-dim);
+      border-radius: 14px;
+      color: #fff;
+      font-size: 2.8rem;
+      font-weight: 200;
+      letter-spacing: 0.45em;
+      text-align: center;
+      padding: 14px 22px;
+      width: 210px;
+      outline: none;
+      transition: border-color .2s;
+    }
+    #code-input:focus { border-color: var(--purple); }
+
+    .btn-primary {
       padding: 14px 48px;
-      border: 1.5px solid #7c6aad;
+      border: 1.5px solid var(--purple-dim);
       border-radius: 50px;
       background: transparent;
-      color: #c8a8f0;
-      font-size: 1.1rem;
+      color: var(--purple);
+      font-size: 1rem;
       letter-spacing: 0.12em;
       cursor: pointer;
-      transition: background 0.25s, border-color 0.25s, color 0.25s;
+      transition: background .2s, border-color .2s;
+    }
+    .btn-primary:hover { background: rgba(124,106,173,0.22); border-color: var(--purple); }
+    .btn-primary:disabled { opacity: .5; cursor: default; }
+
+    #phone-error { color: #e08080; font-size: 0.88rem; text-align: center; min-height: 1.2em; }
+
+    /* ── Mic active ─────────────────────────────── */
+    #mic-active {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      gap: 22px;
+    }
+    #mic-active.show { display: flex; }
+    #mic-active h2 {
+      font-size: 1.3rem; font-weight: 300;
+      letter-spacing: 0.1em; color: var(--green);
+    }
+    #vol-ring {
+      width: 150px; height: 150px;
+      border-radius: 50%;
+      border: 2px solid var(--purple-dim);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 3.2rem;
+      transition: box-shadow .08s, border-color .08s;
     }
 
-    #startBtn:hover {
-      background: rgba(124, 106, 173, 0.25);
-      border-color: #c8a8f0;
-      color: #fff;
-    }
-
-    #status {
-      position: fixed;
-      bottom: 24px;
-      left: 50%;
-      transform: translateX(-50%);
-      color: rgba(180, 160, 220, 0.45);
-      font-size: 0.82rem;
-      letter-spacing: 0.08em;
-      z-index: 5;
-      pointer-events: none;
-    }
-
-    #volBar {
-      position: fixed;
-      bottom: 0;
-      left: 0;
-      width: 0%;
-      height: 3px;
+    /* ── Volume rail ────────────────────────────── */
+    #vol-rail {
+      position: fixed; bottom: 0; left: 0;
+      height: 3px; width: 0%;
       background: linear-gradient(90deg, #6a4fc8, #c87aec, #4fb8d4);
-      z-index: 5;
-      transition: width 0.06s ease;
+      z-index: 20;
+      transition: width .06s;
     }
   </style>
 </head>
@@ -101,217 +259,415 @@
 
 <canvas id="canvas"></canvas>
 
-<div id="overlay">
+<!-- ── Landing ── -->
+<div id="screen-landing" class="screen active">
   <h1>Karaoke Lights</h1>
-  <p>Allow microphone access to sync lights to sound</p>
-  <button id="startBtn">Start the Show</button>
+  <p>Which device is this?</p>
+  <div class="choice-row">
+    <button class="choice-btn" id="btn-tv">
+      <span class="icon">📺</span>
+      This is the TV
+    </button>
+    <button class="choice-btn" id="btn-phone">
+      <span class="icon">🎤</span>
+      This is my Phone
+    </button>
+  </div>
 </div>
 
-<div id="status">listening to room audio…</div>
-<div id="volBar"></div>
+<!-- ── TV display ── -->
+<div id="screen-tv" class="screen">
+  <div id="tv-overlay">
+    <div id="room-box">
+      <div class="label">Open this site on your phone</div>
+      <div id="room-code">----</div>
+      <div id="qr-wrap"><div id="qr-div"></div></div>
+      <div id="room-url"></div>
+      <button id="btn-local-mic">Or use this device's mic</button>
+    </div>
+    <div id="tv-status">
+      <div class="dot" id="status-dot"></div>
+      <span id="status-text">Waiting for phone…</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Phone mic ── -->
+<div id="screen-phone" class="screen">
+  <h1>Karaoke Lights</h1>
+  <div id="code-entry">
+    <p>Enter the room code shown on the TV</p>
+    <input id="code-input" type="tel" inputmode="numeric" maxlength="4" placeholder="0000" autocomplete="off" />
+    <button class="btn-primary" id="btn-connect">Connect to TV</button>
+    <div id="phone-error"></div>
+  </div>
+  <div id="mic-active">
+    <h2>&#10003; Connected to TV</h2>
+    <div id="vol-ring">&#127908;</div>
+    <p>Hold your phone up<br>toward the music</p>
+  </div>
+</div>
+
+<div id="vol-rail"></div>
 
 <script>
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  const overlay = document.getElementById('overlay');
-  const startBtn = document.getElementById('startBtn');
-  const volBar = document.getElementById('volBar');
+// ── roundRect polyfill for older TV browsers ─────────────────────────────────
+if (!CanvasRenderingContext2D.prototype.roundRect) {
+  CanvasRenderingContext2D.prototype.roundRect = function(x, y, w, h, radii) {
+    const r = Array.isArray(radii) ? (radii[0] || 0) : (radii || 0);
+    this.moveTo(x + r, y);
+    this.lineTo(x + w - r, y);
+    this.arcTo(x + w, y, x + w, y + r, r);
+    this.lineTo(x + w, y + h - r);
+    this.arcTo(x + w, y + h, x + w - r, y + h, r);
+    this.lineTo(x + r, y + h);
+    this.arcTo(x, y + h, x, y + h - r, r);
+    this.lineTo(x, y + r);
+    this.arcTo(x, y, x + r, y, r);
+    this.closePath();
+    return this;
+  };
+}
 
-  let W, H;
-  function resize() {
-    W = canvas.width = window.innerWidth;
-    H = canvas.height = window.innerHeight;
+// ── DOM ───────────────────────────────────────────────────────────────────────
+const canvas       = document.getElementById('canvas');
+const ctx          = canvas.getContext('2d');
+const volRail      = document.getElementById('vol-rail');
+
+const screenLanding = document.getElementById('screen-landing');
+const screenTV      = document.getElementById('screen-tv');
+const screenPhone   = document.getElementById('screen-phone');
+
+const btnTV         = document.getElementById('btn-tv');
+const btnPhone      = document.getElementById('btn-phone');
+const roomCodeEl    = document.getElementById('room-code');
+const roomUrlEl     = document.getElementById('room-url');
+const qrDiv         = document.getElementById('qr-div');
+const tvOverlay     = document.getElementById('tv-overlay');
+const statusDot     = document.getElementById('status-dot');
+const statusText    = document.getElementById('status-text');
+const btnLocalMic   = document.getElementById('btn-local-mic');
+
+const codeInput    = document.getElementById('code-input');
+const btnConnect   = document.getElementById('btn-connect');
+const codeEntry    = document.getElementById('code-entry');
+const micActive    = document.getElementById('mic-active');
+const phoneError   = document.getElementById('phone-error');
+const volRing      = document.getElementById('vol-ring');
+
+// ── Canvas resize ─────────────────────────────────────────────────────────────
+let W, H;
+function resize() { W = canvas.width = innerWidth; H = canvas.height = innerHeight; }
+resize();
+addEventListener('resize', resize);
+
+// ── Visual state ──────────────────────────────────────────────────────────────
+let smoothVol = 0;
+let beatDecay = 0;
+let freqBuf   = new Uint8Array(32);
+
+// Local analyser (TV local-mic mode)
+let analyser = null;
+let rawBuf   = null;
+
+function localVolume() {
+  if (!analyser) return 0;
+  analyser.getByteFrequencyData(rawBuf);
+  let sum = 0;
+  for (let i = 0; i < rawBuf.length; i++)
+    sum += rawBuf[i] * (i < 16 ? 2.5 : i < 48 ? 1.5 : 1.0);
+  const denom = (16*2.5 + 32*1.5 + Math.max(rawBuf.length - 48, 0)) * 255;
+  return sum / denom;
+}
+
+// ── Orbs ──────────────────────────────────────────────────────────────────────
+const PALETTE = [
+  [108,74,200],[200,90,220],[79,180,210],[100,140,240],
+  [180,100,255],[60,200,200],[130,80,230],[220,110,180],
+];
+const rand = (a,b) => a + Math.random()*(b-a);
+
+const orbs = Array.from({length:14}, (_,i) => ({
+  x: rand(.1,.9)*innerWidth, y: rand(.1,.9)*innerHeight,
+  vx: rand(-.4,.4), vy: rand(-.4,.4),
+  baseR: rand(80,180),
+  phase: rand(0,Math.PI*2), speed: rand(.003,.009),
+  pulseAmp: rand(.3,.7),
+  color: PALETTE[i % PALETTE.length],
+  alpha: rand(.18,.35),
+  bp: 0,
+}));
+
+const stars = Array.from({length:120}, () => ({
+  x: Math.random(), y: Math.random(),
+  sz: rand(.5,1.8),
+  tw: rand(0,Math.PI*2), spd: rand(.01,.04),
+}));
+
+// ── Render loop ───────────────────────────────────────────────────────────────
+function draw() {
+  requestAnimationFrame(draw);
+
+  const vol = analyser ? localVolume() : 0;
+  smoothVol += (vol - smoothVol) * 0.12;
+  if (smoothVol > 0.55) beatDecay = Math.min(beatDecay + smoothVol*0.8, 1);
+  beatDecay *= 0.93;
+  const beat = beatDecay;
+
+  volRail.style.width = (smoothVol*100).toFixed(1)+'%';
+
+  // Background
+  ctx.fillStyle = `rgba(8,8,24,${0.18 + beat*0.06})`;
+  ctx.fillRect(0, 0, W, H);
+
+  // Stars
+  for (const s of stars) {
+    s.tw += s.spd + smoothVol*0.04;
+    const a = Math.min(.3 + .55*Math.abs(Math.sin(s.tw)) + smoothVol*.3, 1);
+    ctx.beginPath();
+    ctx.arc(s.x*W, s.y*H, s.sz + beat*1.2, 0, Math.PI*2);
+    ctx.fillStyle = `rgba(200,180,255,${a.toFixed(2)})`;
+    ctx.fill();
   }
-  resize();
-  window.addEventListener('resize', resize);
 
-  const PALETTE = [
-    [108,  74, 200],
-    [200,  90, 220],
-    [ 79, 180, 210],
-    [100, 140, 240],
-    [180, 100, 255],
-    [ 60, 200, 200],
-    [130,  80, 230],
-    [220, 110, 180],
-  ];
+  // Orbs
+  for (const o of orbs) {
+    o.x += o.vx; o.y += o.vy;
+    if (o.x < -200) o.x = W+200; if (o.x > W+200) o.x = -200;
+    if (o.y < -200) o.y = H+200; if (o.y > H+200) o.y = -200;
+    o.phase += o.speed;
+    if (beat > .05) o.bp = Math.min(o.bp + beat*.7, 1.2);
+    o.bp *= .88;
 
-  const NUM_ORBS = 14;
-  const orbs = [];
-
-  function randBetween(a, b) { return a + Math.random() * (b - a); }
-
-  function makeOrb(i) {
-    const [r, g, b] = PALETTE[i % PALETTE.length];
-    return {
-      x: randBetween(0.1, 0.9) * W,
-      y: randBetween(0.1, 0.9) * H,
-      vx: randBetween(-0.4, 0.4),
-      vy: randBetween(-0.4, 0.4),
-      baseR: randBetween(80, 180),
-      r: 0,
-      phase: randBetween(0, Math.PI * 2),
-      speed: randBetween(0.003, 0.009),
-      pulseAmp: randBetween(0.3, 0.7),
-      color: [r, g, b],
-      alpha: randBetween(0.18, 0.35),
-      beatPulse: 0,
-    };
+    const r = o.baseR * (1 + o.pulseAmp*Math.sin(o.phase) + smoothVol*1.4 + o.bp);
+    const [cr,cg,cb] = o.color;
+    const a = o.alpha + smoothVol*.25 + o.bp*.18;
+    const g = ctx.createRadialGradient(o.x,o.y,0, o.x,o.y,r);
+    g.addColorStop(0,    `rgba(${cr},${cg},${cb},${Math.min(a*1.6,.82).toFixed(2)})`);
+    g.addColorStop(0.45, `rgba(${cr},${cg},${cb},${(a*.55).toFixed(2)})`);
+    g.addColorStop(1,    `rgba(${cr},${cg},${cb},0)`);
+    ctx.beginPath();
+    ctx.arc(o.x, o.y, r, 0, Math.PI*2);
+    ctx.fillStyle = g;
+    ctx.fill();
   }
 
-  for (let i = 0; i < NUM_ORBS; i++) orbs.push(makeOrb(i));
-
-  const STARS = 120;
-  const stars = Array.from({ length: STARS }, () => ({
-    x: Math.random(),
-    y: Math.random(),
-    size: randBetween(0.5, 1.8),
-    twinkle: randBetween(0, Math.PI * 2),
-    speed: randBetween(0.01, 0.04),
-  }));
-
-  let analyser = null;
-  let dataArray = null;
-  let smoothVolume = 0;
-  let beatDecay = 0;
-
-  function getVolume() {
-    if (!analyser) return 0;
-    analyser.getByteFrequencyData(dataArray);
-    let sum = 0;
-    const len = dataArray.length;
-    for (let i = 0; i < len; i++) {
-      const weight = i < 16 ? 2.5 : i < 48 ? 1.5 : 1.0;
-      sum += dataArray[i] * weight;
-    }
-    const weightedLen = 16 * 2.5 + 32 * 1.5 + (len - 48);
-    return sum / (weightedLen * 255);
+  // Freq bars bottom
+  const bars=60, barW=W/bars, maxH=H*.22;
+  for (let i=0; i<bars; i++) {
+    const fi = Math.floor((i/bars)*freqBuf.length);
+    const val = freqBuf[fi]/255;
+    if (val < .01) continue;
+    const bh = val*maxH;
+    const hue = 200+(i/bars)*120;
+    ctx.beginPath();
+    ctx.roundRect(i*barW+1, H-bh, barW-2, bh, [4,4,0,0]);
+    ctx.fillStyle = `hsla(${hue},${60+val*40}%,${50+val*25}%,${.55+val*.35})`;
+    ctx.fill();
   }
+  // Mirror top
+  ctx.save(); ctx.scale(1,-1); ctx.translate(0,-H);
+  for (let i=0; i<bars; i++) {
+    const fi = Math.floor((i/bars)*freqBuf.length);
+    const val = freqBuf[fi]/255;
+    if (val < .01) continue;
+    ctx.beginPath();
+    ctx.roundRect(i*barW+1, H-val*maxH*.5, barW-2, val*maxH*.5, [4,4,0,0]);
+    ctx.fillStyle = `hsla(${200+(i/bars)*120},60%,55%,${.15+val*.2})`;
+    ctx.fill();
+  }
+  ctx.restore();
 
-  startBtn.addEventListener('click', async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const source = audioCtx.createMediaStreamSource(stream);
-      analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.78;
-      dataArray = new Uint8Array(analyser.frequencyBinCount);
-      source.connect(analyser);
-      overlay.classList.add('hidden');
-    } catch (e) {
-      const p = overlay.querySelector('p');
-      p.textContent = 'Microphone access denied. Please allow and try again.';
-      p.style.color = '#e08080';
-    }
+  // Centre beat flash
+  if (beat > .08) {
+    const g = ctx.createRadialGradient(W/2,H/2,0, W/2,H/2,Math.min(W,H)*.65);
+    g.addColorStop(0, `rgba(160,100,255,${(beat*.18).toFixed(2)})`);
+    g.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.beginPath(); ctx.rect(0,0,W,H);
+    ctx.fillStyle = g; ctx.fill();
+  }
+}
+draw();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function showScreen(id) {
+  [screenLanding, screenTV, screenPhone].forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-'+id).classList.add('active');
+}
+
+function genCode() {
+  return Math.floor(1000 + Math.random()*9000).toString();
+}
+
+async function startLocalMic() {
+  const stream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+  const ac = new (window.AudioContext||window.webkitAudioContext)();
+  const src = ac.createMediaStreamSource(stream);
+  analyser = ac.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.78;
+  rawBuf = new Uint8Array(analyser.frequencyBinCount);
+  src.connect(analyser);
+  // Keep freqBuf in sync for bars
+  setInterval(() => {
+    if (!analyser) return;
+    analyser.getByteFrequencyData(rawBuf);
+    freqBuf = rawBuf.slice(0, 32);
+  }, 50);
+}
+
+// ── Auto-route via URL param ──────────────────────────────────────────────────
+const urlRoom = new URLSearchParams(location.search).get('room');
+if (urlRoom) {
+  showScreen('phone');
+  codeInput.value = urlRoom.replace(/\D/g,'').slice(0,4);
+}
+
+// ── TV mode ───────────────────────────────────────────────────────────────────
+btnTV.addEventListener('click', () => {
+  const code = genCode();
+  showScreen('tv');
+  roomCodeEl.textContent = code;
+
+  const micUrl = location.origin + location.pathname + '?room=' + code;
+  roomUrlEl.textContent = micUrl.replace(/^https?:\/\//, '');
+
+  try {
+    new QRCode(qrDiv, {
+      text: micUrl, width:140, height:140,
+      colorDark:'#1a0a3a', colorLight:'#ffffff',
+    });
+  } catch(e){}
+
+  const peer = new Peer('kparty26-' + code, {
+    debug: 0,
+    config: { iceServers: [{urls:'stun:stun.l.google.com:19302'}] },
   });
 
-  function draw() {
-    requestAnimationFrame(draw);
+  peer.on('open', () => {
+    statusText.textContent = 'Waiting for phone…';
+  });
 
-    const volume = getVolume();
-    smoothVolume += (volume - smoothVolume) * 0.12;
+  peer.on('connection', (conn) => {
+    statusDot.classList.add('on');
+    statusText.textContent = 'Phone connected!';
+    setTimeout(() => tvOverlay.classList.add('hidden'), 1400);
 
-    if (smoothVolume > 0.55) {
-      beatDecay = Math.min(beatDecay + smoothVolume * 0.8, 1.0);
-    }
-    beatDecay *= 0.93;
-    const beatEnergy = beatDecay;
+    conn.on('data', (d) => {
+      if (!d) return;
+      // Blend incoming volume into smoothVol directly
+      smoothVol += ((d.v||0) - smoothVol) * 0.3;
+      if (d.b) beatDecay = Math.max(beatDecay, d.b);
+      if (d.f) freqBuf = new Uint8Array(d.f);
+    });
 
-    volBar.style.width = (smoothVolume * 100).toFixed(1) + '%';
+    conn.on('close', () => {
+      statusDot.classList.remove('on');
+      statusText.textContent = 'Phone disconnected — scan again';
+      tvOverlay.classList.remove('hidden');
+      freqBuf = new Uint8Array(32);
+    });
+  });
 
-    ctx.fillStyle = `rgba(8,8,24,${0.18 + beatEnergy * 0.06})`;
-    ctx.fillRect(0, 0, W, H);
+  peer.on('error', () => {
+    statusText.textContent = 'Connection error — refresh to retry';
+  });
+});
 
-    for (const s of stars) {
-      s.twinkle += s.speed + smoothVolume * 0.04;
-      const a = 0.3 + 0.55 * Math.abs(Math.sin(s.twinkle)) + smoothVolume * 0.3;
-      const sz = s.size + beatEnergy * 1.2;
-      ctx.beginPath();
-      ctx.arc(s.x * W, s.y * H, sz, 0, Math.PI * 2);
-      ctx.fillStyle = `rgba(200,180,255,${a.toFixed(2)})`;
-      ctx.fill();
-    }
+// TV local mic fallback
+btnLocalMic.addEventListener('click', async () => {
+  try {
+    await startLocalMic();
+    tvOverlay.classList.add('hidden');
+  } catch(e) {
+    statusText.textContent = 'Mic access denied';
+  }
+});
 
-    for (const o of orbs) {
-      o.x += o.vx;
-      o.y += o.vy;
-      if (o.x < -200) o.x = W + 200;
-      if (o.x > W + 200) o.x = -200;
-      if (o.y < -200) o.y = H + 200;
-      if (o.y > H + 200) o.y = -200;
+// ── Phone mode ────────────────────────────────────────────────────────────────
+btnPhone.addEventListener('click', () => showScreen('phone'));
 
-      o.phase += o.speed;
+codeInput.addEventListener('input', () => {
+  codeInput.value = codeInput.value.replace(/\D/g,'').slice(0,4);
+});
 
-      if (beatEnergy > 0.05) o.beatPulse = Math.min(o.beatPulse + beatEnergy * 0.7, 1.2);
-      o.beatPulse *= 0.88;
+btnConnect.addEventListener('click', async () => {
+  const code = codeInput.value.trim();
+  if (code.length !== 4) {
+    phoneError.textContent = 'Enter the 4-digit code from the TV.';
+    return;
+  }
+  phoneError.textContent = '';
+  btnConnect.textContent = 'Connecting…';
+  btnConnect.disabled = true;
 
-      const pulse = 1 + o.pulseAmp * Math.sin(o.phase) + smoothVolume * 1.4 + o.beatPulse;
-      o.r = o.baseR * pulse;
-
-      const [r, g, b] = o.color;
-      const alpha = o.alpha + smoothVolume * 0.25 + o.beatPulse * 0.18;
-
-      const grad = ctx.createRadialGradient(o.x, o.y, 0, o.x, o.y, o.r);
-      grad.addColorStop(0, `rgba(${r},${g},${b},${Math.min(alpha * 1.6, 0.82).toFixed(2)})`);
-      grad.addColorStop(0.45, `rgba(${r},${g},${b},${(alpha * 0.55).toFixed(2)})`);
-      grad.addColorStop(1, `rgba(${r},${g},${b},0)`);
-
-      ctx.beginPath();
-      ctx.arc(o.x, o.y, o.r, 0, Math.PI * 2);
-      ctx.fillStyle = grad;
-      ctx.fill();
-    }
-
-    if (analyser) {
-      const bars = 60;
-      const barW = W / bars;
-      const maxH = H * 0.22;
-
-      analyser.getByteFrequencyData(dataArray);
-
-      for (let i = 0; i < bars; i++) {
-        const idx = Math.floor((i / bars) * dataArray.length * 0.6);
-        const val = dataArray[idx] / 255;
-        const bh = val * maxH;
-        const hue = 200 + (i / bars) * 120;
-        const sat = 60 + val * 40;
-        const lit = 50 + val * 25;
-
-        ctx.beginPath();
-        ctx.roundRect(i * barW + 1, H - bh, barW - 2, bh, [4, 4, 0, 0]);
-        ctx.fillStyle = `hsla(${hue},${sat}%,${lit}%,${0.55 + val * 0.35})`;
-        ctx.fill();
-      }
-
-      ctx.save();
-      ctx.scale(1, -1);
-      ctx.translate(0, -H);
-      for (let i = 0; i < bars; i++) {
-        const idx = Math.floor((i / bars) * dataArray.length * 0.6);
-        const val = dataArray[idx] / 255;
-        const bh = val * maxH * 0.5;
-        const hue = 200 + (i / bars) * 120;
-        ctx.beginPath();
-        ctx.roundRect(i * barW + 1, H - bh, barW - 2, bh, [4, 4, 0, 0]);
-        ctx.fillStyle = `hsla(${hue},60%,55%,${0.15 + val * 0.2})`;
-        ctx.fill();
-      }
-      ctx.restore();
-    }
-
-    if (beatEnergy > 0.08) {
-      const g = ctx.createRadialGradient(W / 2, H / 2, 0, W / 2, H / 2, Math.min(W, H) * 0.65);
-      g.addColorStop(0, `rgba(160,100,255,${(beatEnergy * 0.18).toFixed(2)})`);
-      g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.beginPath();
-      ctx.rect(0, 0, W, H);
-      ctx.fillStyle = g;
-      ctx.fill();
-    }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({audio:true, video:false});
+  } catch(e) {
+    phoneError.textContent = 'Microphone access denied — please allow and retry.';
+    btnConnect.textContent = 'Connect to TV';
+    btnConnect.disabled = false;
+    return;
   }
 
-  draw();
+  const ac = new (window.AudioContext||window.webkitAudioContext)();
+  const src = ac.createMediaStreamSource(stream);
+  const mic = ac.createAnalyser();
+  mic.fftSize = 128;
+  mic.smoothingTimeConstant = 0.75;
+  const micBuf = new Uint8Array(mic.frequencyBinCount);
+  src.connect(mic);
+
+  const peer = new Peer({ debug:0 });
+
+  peer.on('open', () => {
+    const conn = peer.connect('kparty26-' + code);
+
+    conn.on('open', () => {
+      codeEntry.style.display = 'none';
+      micActive.classList.add('show');
+
+      let lv=0, lb=0;
+
+      setInterval(() => {
+        if (!conn.open) return;
+        mic.getByteFrequencyData(micBuf);
+
+        let sum=0;
+        for (let i=0;i<micBuf.length;i++)
+          sum += micBuf[i]*(i<8?2.5:i<24?1.5:1.0);
+        const raw = sum / ((8*2.5+16*1.5+Math.max(micBuf.length-24,0))*255);
+
+        lv += (raw-lv)*0.15;
+        if (lv>.55) lb = Math.min(lb+lv*.8,1);
+        lb *= 0.93;
+
+        // Phone ring visual feedback
+        const glow = Math.round(lv*70);
+        volRing.style.boxShadow    = `0 0 ${glow}px rgba(200,168,240,${(lv*.9).toFixed(2)})`;
+        volRing.style.borderColor  = lv > .4 ? 'var(--purple)' : 'var(--purple-dim)';
+
+        conn.send({ v:lv, b:lb, f:Array.from(micBuf.slice(0,32)) });
+      }, 50);
+    });
+
+    conn.on('error', () => {
+      phoneError.textContent = 'Could not reach the TV. Check the code and try again.';
+      phoneError.style.display = 'block';
+      btnConnect.textContent = 'Connect to TV';
+      btnConnect.disabled = false;
+      codeEntry.style.display = 'flex';
+      micActive.classList.remove('show');
+    });
+  });
+
+  peer.on('error', () => {
+    phoneError.textContent = 'Connection failed. Make sure the TV page is open.';
+    btnConnect.textContent = 'Connect to TV';
+    btnConnect.disabled = false;
+  });
+});
 </script>
 </body>
 </html>
