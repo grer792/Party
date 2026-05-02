@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
   <title>Karaoke Party Lights</title>
-  <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -535,15 +535,15 @@ if (urlRoom) {
   codeInput.value = urlRoom.replace(/\D/g,'').slice(0,4);
 }
 
+const BROKER = 'wss://broker.hivemq.com:8884/mqtt';
+
 // ── TV mode ───────────────────────────────────────────────────────────────────
 function startTV() {
   const code = genCode();
   showScreen('tv');
   roomCodeEl.textContent = code;
   statusDot.classList.remove('on');
-  statusText.textContent = 'Starting…';
-
-  // Clear old QR if retrying
+  statusText.textContent = 'Connecting…';
   qrDiv.innerHTML = '';
 
   const micUrl = location.origin + location.pathname + '?room=' + code;
@@ -556,46 +556,36 @@ function startTV() {
     });
   } catch(e){}
 
-  const ICE = { iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ]};
+  const topic = 'karaoke-party/' + code + '/audio';
+  let phoneConnected = false;
 
-  const peer = new Peer('kp26-' + code, { debug:0, config: ICE });
+  const client = mqtt.connect(BROKER, {
+    clientId: 'tv-' + code + '-' + Math.random().toString(36).slice(2,7),
+    clean: true,
+  });
 
-  peer.on('open', () => {
+  client.on('connect', () => {
+    client.subscribe(topic);
     statusText.textContent = 'Waiting for phone…';
   });
 
-  peer.on('connection', (conn) => {
-    statusDot.classList.add('on');
-    statusText.textContent = 'Phone connected!';
-    setTimeout(() => tvOverlay.classList.add('hidden'), 1200);
-
-    conn.on('data', (d) => {
-      if (!d) return;
+  client.on('message', (t, payload) => {
+    try {
+      const d = JSON.parse(payload.toString());
       smoothVol += ((d.v||0) - smoothVol) * 0.3;
       if (d.b) beatDecay = Math.max(beatDecay, d.b);
       if (d.f) freqBuf = new Uint8Array(d.f);
-    });
-
-    conn.on('close', () => {
-      statusDot.classList.remove('on');
-      statusText.textContent = 'Phone disconnected — scan again';
-      tvOverlay.classList.remove('hidden');
-      freqBuf = new Uint8Array(32);
-    });
+      if (!phoneConnected) {
+        phoneConnected = true;
+        statusDot.classList.add('on');
+        statusText.textContent = 'Phone connected!';
+        setTimeout(() => tvOverlay.classList.add('hidden'), 1200);
+      }
+    } catch(e) {}
   });
 
-  peer.on('error', (err) => {
-    if (err.type === 'unavailable-id') {
-      // ID taken by a stale session — auto-retry with new code
-      statusText.textContent = 'Retrying…';
-      peer.destroy();
-      setTimeout(startTV, 800);
-    } else {
-      statusText.textContent = 'Network error — refresh to retry';
-    }
+  client.on('error', () => {
+    statusText.textContent = 'Network error — refresh to retry';
   });
 }
 
@@ -646,10 +636,12 @@ btnConnect.addEventListener('click', async () => {
   const micBuf = new Uint8Array(mic.frequencyBinCount);
   src.connect(mic);
 
-  const peer = new Peer({ debug:0, config: { iceServers: [
-    { urls: 'stun:stun.l.google.com:19302' },
-    { urls: 'stun:stun1.l.google.com:19302' },
-  ]}});
+  const topic = 'karaoke-party/' + code + '/audio';
+
+  const client = mqtt.connect(BROKER, {
+    clientId: 'ph-' + Math.random().toString(36).slice(2,10),
+    clean: true,
+  });
 
   function resetPhoneUI(msg) {
     phoneError.textContent = msg;
@@ -657,57 +649,41 @@ btnConnect.addEventListener('click', async () => {
     btnConnect.disabled = false;
     codeEntry.style.display = 'flex';
     micActive.classList.remove('show');
-    peer.destroy();
+    try { client.end(); } catch(e) {}
   }
 
-  peer.on('open', () => {
-    const conn = peer.connect('kp26-' + code);
+  client.on('connect', () => {
+    codeEntry.style.display = 'none';
+    micActive.classList.add('show');
 
-    // Timeout if TV never responds
-    const timeout = setTimeout(() => {
-      if (!conn.open) resetPhoneUI('No response from TV. Make sure the TV screen shows the room code and try again.');
-    }, 12000);
+    let lv=0, lb=0;
+    setInterval(() => {
+      if (!client.connected) return;
+      mic.getByteFrequencyData(micBuf);
 
-    conn.on('open', () => {
-      clearTimeout(timeout);
-      codeEntry.style.display = 'none';
-      micActive.classList.add('show');
+      let sum=0;
+      for (let i=0;i<micBuf.length;i++)
+        sum += micBuf[i]*(i<8?2.5:i<24?1.5:1.0);
+      const raw = sum / ((8*2.5+16*1.5+Math.max(micBuf.length-24,0))*255);
 
-      let lv=0, lb=0;
+      lv += (raw-lv)*0.15;
+      if (lv>.55) lb = Math.min(lb+lv*.8,1);
+      lb *= 0.93;
 
-      setInterval(() => {
-        if (!conn.open) return;
-        mic.getByteFrequencyData(micBuf);
+      const glow = Math.round(lv*70);
+      volRing.style.boxShadow   = `0 0 ${glow}px rgba(200,168,240,${(lv*.9).toFixed(2)})`;
+      volRing.style.borderColor = lv > .4 ? 'var(--purple)' : 'var(--purple-dim)';
 
-        let sum=0;
-        for (let i=0;i<micBuf.length;i++)
-          sum += micBuf[i]*(i<8?2.5:i<24?1.5:1.0);
-        const raw = sum / ((8*2.5+16*1.5+Math.max(micBuf.length-24,0))*255);
-
-        lv += (raw-lv)*0.15;
-        if (lv>.55) lb = Math.min(lb+lv*.8,1);
-        lb *= 0.93;
-
-        const glow = Math.round(lv*70);
-        volRing.style.boxShadow   = `0 0 ${glow}px rgba(200,168,240,${(lv*.9).toFixed(2)})`;
-        volRing.style.borderColor = lv > .4 ? 'var(--purple)' : 'var(--purple-dim)';
-
-        conn.send({ v:lv, b:lb, f:Array.from(micBuf.slice(0,32)) });
-      }, 50);
-    });
-
-    conn.on('error', () => {
-      clearTimeout(timeout);
-      resetPhoneUI('Could not reach the TV. Check the code and try again.');
-    });
+      client.publish(topic, JSON.stringify({
+        v: +lv.toFixed(3),
+        b: +lb.toFixed(3),
+        f: Array.from(micBuf.slice(0,32)),
+      }));
+    }, 50);
   });
 
-  peer.on('error', (err) => {
-    const msg = err.type === 'peer-unavailable'
-      ? 'TV not found. Make sure the TV is on the room code screen, then try again.'
-      : 'Connection failed. Check your internet and try again.';
-    resetPhoneUI(msg);
-  });
+  client.on('error', () => resetPhoneUI('Connection failed. Check your internet and try again.'));
+  client.on('offline', () => resetPhoneUI('Lost connection. Try again.'));
 });
 </script>
 </body>
